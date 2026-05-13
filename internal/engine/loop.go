@@ -17,13 +17,16 @@ type AgentEngine struct {
 
 	// WorkDir（工作区）：借鉴 OpenClaw 的理念，Agent 必须有一个明确的物理边界
 	WorkDir string
+	// EnableThinking 是否开启慢思考
+	EnableThinking bool
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string) *AgentEngine {
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, enableThinking bool) *AgentEngine {
 	return &AgentEngine{
-		provider: p,
-		registry: r,
-		WorkDir:  workDir,
+		provider:       p,
+		registry:       r,
+		WorkDir:        workDir,
+		EnableThinking: enableThinking,
 	}
 }
 
@@ -54,31 +57,50 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// 获取当前挂载的所有工具定义
 		availableTools := e.registry.GetAvailableTools()
 
-		// 向大模型发起推理请求（包含 Reasoning）
-		log.Println("[Engine] 正在思考（Reasoning）...")
-		responseMessage, err := e.provider.Generate(ctx, contextHistory, availableTools)
+		// =======================================================
+		// Phase 1：慢思考阶段（Thinking）- 剥夺工具，强制让模型先规划
+		// =======================================================
+		if e.EnableThinking {
+			thinkResp, err := e.provider.Generate(ctx, contextHistory, nil)
+			if err != nil {
+				return fmt.Errorf("Thinking 阶段生成失败：%w\n", err)
+			}
+			// 如果模型输出了思考过程，我们将其作为 Assistant 消息追加到上下文中
+			if thinkResp.Content != "" {
+				contextHistory = append(contextHistory, *thinkResp)
+				log.Printf("[Trace] 模型思考：%s\n", thinkResp.Content)
+			}
+		}
+
+		// =======================================================
+		// Phase 2：行动阶段（Action）- 恢复工具，顺着规划执行
+		// =======================================================
+		log.Printf("[Engine][Phase2] 恢复挂载工具，等待模型采取行动...")
+		// 此时的 contextHistory中已经包含了上一阶段模型自己的 Thinking Trace
+		// 模型会顺着自己的逻辑，结合恢复的 availableTools 发起精准的工具调用
+		actionResp, err := e.provider.Generate(ctx, contextHistory, availableTools)
 		if err != nil {
-			return fmt.Errorf("[Engine] 推理失败：%w\n", err)
+			return fmt.Errorf("Action 阶段生成失败：%w\n", err)
 		}
 
 		// 将模型的响应完整追加到上下文历史中
-		contextHistory = append(contextHistory, *responseMessage)
+		contextHistory = append(contextHistory, *actionResp)
 
 		// 如果模型回复了纯文本，打印出来（这通常是它的思考过程，或是最终结果）
-		if responseMessage.Content != "" {
-			log.Printf("🤖[Engine] 模型回复：%s\n", responseMessage.Content)
+		if actionResp.Content != "" {
+			log.Printf("🤖[Engine] 模型回复：%s\n", actionResp.Content)
 		}
 
 		// 3、退出条件判断
 		// 如果模型没有请求任何工具调用，说明它认为任务已经完成，跳出循环。
-		if len(responseMessage.ToolCalls) == 0 {
+		if len(actionResp.ToolCalls) == 0 {
 			log.Println("[Engine] 模型没有请求任何工具调用，任务完成。\n")
 			break
 		}
 		// 4、 执行行动（Action）与获取观察结果（Observation）
-		log.Printf("[Engine] 模型请求了 %d 个工具调用\n", len(responseMessage.ToolCalls))
+		log.Printf("[Engine] 模型请求了 %d 个工具调用\n", len(actionResp.ToolCalls))
 
-		for _, toolCall := range responseMessage.ToolCalls {
+		for _, toolCall := range actionResp.ToolCalls {
 			log.Printf("[Engine] 正在调用工具 %s, 参数：%s\n", toolCall.Name, string(toolCall.Arguments))
 			// 通过 Registry 路由并执行底层工具
 			toolResult := e.registry.Execute(ctx, toolCall)
