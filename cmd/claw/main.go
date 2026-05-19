@@ -1,31 +1,68 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
+	"os"
+
+	"github.com/hongshuo_wang/go-tiny-claw/internal/engine"
+	"github.com/hongshuo_wang/go-tiny-claw/internal/provider"
+	"github.com/hongshuo_wang/go-tiny-claw/internal/schema"
 )
 
+type mockRegistry struct {
+}
+
+func (m *mockRegistry) GetAvailableTools() []schema.ToolDefinition {
+	// 定义一个获取天气情况的 tool definition
+	return []schema.ToolDefinition{
+		{
+			Name:        "get_weather",
+			Description: "获取指定城市的当前天气情况",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"city": map[string]any{
+						"type":        "string",
+						"description": "城市名称",
+					},
+				},
+				"required": []string{"city"},
+			},
+		},
+	}
+}
+
+func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult {
+	// 直接伪造一段终端输出
+	log.Printf(" -> [Mock 工具执行] 获取 %s 的天气中...\n", call.Name)
+	return schema.ToolResult{
+		ToolCallID: call.ID,
+		Output:     "API 返回：今天是晴天，气温 25度",
+		IsError:    false,
+	}
+}
+
 func main() {
-	fmt.Println("🚀 欢迎来到 go-tiny-claw 引擎启动序列")
+	// 获取当前目录作为 WorkDir的物理边界
+	workDir, _ := os.Getwd()
 
-	// TODO: 1. 初始化模型 Provider (大脑)
-	// provider := provider.NewClaudeProvider(...)
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	if apiKey == "" {
+		log.Fatal("缺少环境变量 OPENAI_API_KEY")
+	}
 
-	// TODO: 2. 初始化 Tool Registry (手脚)
-	// registry := tools.NewRegistry()
-	// registry.Register(tools.NewBashTool())
+	// 初始化真实的 Provider 大脑
+	llmProvider := provider.NewOpenAIProvider("gpt-5.5", "https://api.gapi.cc/v1", apiKey)
+	// 注入伪造的工具注册中心
+	r := &mockRegistry{}
+	// 实例化核心引擎
+	agentEngine := engine.NewAgentEngine(llmProvider, r, workDir, true)
 
-	// TODO: 3. 初始化上下文管理器 (内存管理器)
-	// ctxManager := context.NewManager(...)
-
-	// TODO: 4. 组装并启动核心 Engine (操作系统心脏)
-	// engine := engine.NewAgentEngine(provider, registry, ctxManager)
-
-	// fmt.Println("开始执行任务...")
-	// err := engine.Run("帮我检查一下当前目录下的文件并输出一个 README.md 大纲")
-	// if err != nil {
-	//  log.Fatalf("引擎运行崩溃: %v", err)
-	// }
-
-	log.Println("架构蓝图搭建完毕，等待各核心模块注入！")
+	// 发起任务指令
+	prompt := "我想去北京跑步，帮我查查天气适合吗？"
+	err := agentEngine.Run(context.Background(), prompt)
+	if err != nil {
+		log.Fatalf("引擎崩溃：%v", err)
+	}
 }
