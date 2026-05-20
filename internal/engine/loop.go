@@ -52,7 +52,9 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	// 2、The Main Loop: 心跳开始（一个标准的 ReAct）
 	for {
 		turnCount++
-		log.Printf("======= [Turn %d] 开始 =======\n", turnCount)
+
+		log.Printf("[Engine] 慢思考模式（Thinking Phase）：%s\n", e.EnableThinking)
+		log.Printf("================= [Turn %d] 开始 =================\n", turnCount)
 
 		// 获取当前挂载的所有工具定义
 		availableTools := e.registry.GetAvailableTools()
@@ -61,6 +63,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// Phase 1：慢思考阶段（Thinking）- 剥夺工具，强制让模型先规划
 		// =======================================================
 		if e.EnableThinking {
+			log.Printf("[Engine][Phase1] 剥夺工具访问权，强制进入慢思考与规划阶段...")
 			thinkResp, err := e.provider.Generate(ctx, contextHistory, nil)
 			if err != nil {
 				return fmt.Errorf("Thinking 阶段生成失败：%w\n", err)
@@ -68,7 +71,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			// 如果模型输出了思考过程，我们将其作为 Assistant 消息追加到上下文中
 			if thinkResp.Content != "" {
 				contextHistory = append(contextHistory, *thinkResp)
-				log.Printf("[Trace] 模型思考：%s\n", thinkResp.Content)
+				log.Printf("🧠[内部思考 Trace]：\n%s\n", thinkResp.Content)
 			}
 		}
 
@@ -88,13 +91,13 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 
 		// 如果模型回复了纯文本，打印出来（这通常是它的思考过程，或是最终结果）
 		if actionResp.Content != "" {
-			log.Printf("🤖[Engine] 模型回复：%s\n", actionResp.Content)
+			log.Printf("🤖[对外回答]：\n%s\n", actionResp.Content)
 		}
 
 		// 3、退出条件判断
 		// 如果模型没有请求任何工具调用，说明它认为任务已经完成，跳出循环。
 		if len(actionResp.ToolCalls) == 0 {
-			log.Println("[Engine] 模型没有请求任何工具调用，任务完成。\n")
+			log.Println("[Engine] 模型没有请求任何工具调用，任务完成。")
 			break
 		}
 		// 4、 执行行动（Action）与获取观察结果（Observation）
