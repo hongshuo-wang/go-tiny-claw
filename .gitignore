@@ -58,3 +58,7 @@ temp/
 *.pem
 *.key
 secrets/
+
+# Local agent instructions
+AGENTS.md
+Agents.md
