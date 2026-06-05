@@ -47,6 +47,7 @@ func (r *RegistryImpl) Registry(tool BaseTool) {
 		return
 	}
 	// 把工具注册到 map 中
+	log.Printf("已成功挂载工具:[%s]\n", toolName)
 	r.tools[toolName] = tool
 }
 

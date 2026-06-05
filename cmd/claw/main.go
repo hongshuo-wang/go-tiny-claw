@@ -26,13 +26,15 @@ func main() {
 	// 注册文件读取工具
 	readFileTool := tools.NewReadFileTool(workDir)
 	writeFileTool := tools.NewWriteFileTool(workDir)
+	bashTool := tools.NewBashTool(workDir)
 	r.Registry(readFileTool)
 	r.Registry(writeFileTool)
+	r.Registry(bashTool)
 	// 实例化核心引擎
-	agentEngine := engine.NewAgentEngine(llmProvider, r, workDir, true)
+	agentEngine := engine.NewAgentEngine(llmProvider, r, workDir, false)
 
 	// 发起任务指令
-	prompt := "查找一下当前工作区的 hello.txt文件，并跟我说一下里面有什么内容？然后给我写到另一个 hello1.txt文件里"
+	prompt := "请帮我执行以下操作： 1. 用 bash 查看一下我当前电脑的 Go 版本。 2. 帮我写一个简单的 helloworld.go 文件，输出 \"Hello, go-tiny-claw!\"。 3. 用 bash 编译并运行这个 go 文件，确认它能正常工作。"
 	err := agentEngine.Run(context.Background(), prompt)
 	if err != nil {
 		log.Fatalf("引擎崩溃：%v", err)

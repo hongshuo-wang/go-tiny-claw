@@ -78,7 +78,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// =======================================================
 		// Phase 2：行动阶段（Action）- 恢复工具，顺着规划执行
 		// =======================================================
-		log.Printf("[Engine][Phase2] 恢复挂载工具，等待模型采取行动...")
+		log.Printf("[Engine][Phase2] 挂载工具，等待模型采取行动...")
 		// 此时的 contextHistory中已经包含了上一阶段模型自己的 Thinking Trace
 		// 模型会顺着自己的逻辑，结合恢复的 availableTools 发起精准的工具调用
 		actionResp, err := e.provider.Generate(ctx, contextHistory, availableTools)
