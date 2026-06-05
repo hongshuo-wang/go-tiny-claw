@@ -1,0 +1,7 @@
+在当前的 Provider 适配器中，我们使用的是阻塞式调用（例如：client.Chat.Completions.New(ctx, params)）。
+这意味着如果大模型在进行 Phase 1 的长篇大论“思考”时，整个程序会阻塞卡死十多秒钟，直到模型把所有的推理和工具调用 JSON 全都生成完毕后，引擎才能一次性拿到结果。
+这在 CLI 工具体验中是非常差的。
+实际生产中，各大模型的 API 均支持 Streaming（流式响应，Server-Sent Events）。
+大模型会一个字符一个字符地将文本推送过来，甚至 ToolCall 的 JSON 也是一块块吐出的。
+结合你对 Go 语言 channel（通道）和 goroutine（协程）的理解，如果要把我们的 LLMProvider 改造为支持流式返回的接口，它的函数签名应该怎么设计？
+引擎的 Main Loop 又该如何优雅地边接收流式字符边打印，同时还能正确拼接出最终完整的 schema.Message 呢？

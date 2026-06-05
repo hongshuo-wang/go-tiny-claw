@@ -1,0 +1,9 @@
+仔细观察目前的 loop.go 代码，当大模型在一个 Turn 里返回了多个 ToolCall 时，
+我们是通过一个 for 循环串行（Sequential）地去调用
+e.registry.Execute 的：for _, toolCall := range responseMsg.ToolCalls {
+result := e.registry.Execute(ctx, toolCall) // ...}
+假设大模型非常聪明，它为了加快速度，同时请求了读取 3 个完全独立的文件。
+以我们目前的串行写法，必须等第一个文件读完并返回，才会去读第二个文件。
+作为一名专业的 Go 开发工程师，你能想到如何利用 Go 语言的原生特性（比如 Goroutine 和 WaitGroup），
+将这里的工具执行改造为并行执行（Parallel Execution）吗？
+如果在并行执行中某个工具报错了，又该如何将所有并行的结果（Observation）按照正确的顺序组装回 Context 中？

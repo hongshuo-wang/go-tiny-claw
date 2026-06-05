@@ -1,0 +1,7 @@
+我们在 bash.go 中，为了防止整个 Engine 死锁，加入了一个简单的 30 秒超时控制（Timeout）：
+timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+但在实际的开发场景中，大模型有时确实需要启动一些常驻后台的进程。
+例如：大模型写完了一个 Web 项目，它需要执行 npm run dev 启动一个前端开发服务器，或者运行 python server.py 来验证接口。
+如果按照现在的逻辑，这些一直挂起不退出的命令，在 30 秒后会被强制 Kill 掉，大模型将无法进行后续的 curl 测试。
+如果让你来改进当前的极简 bash 工具，你会如何通过 Go 的机制，让大模型既能安全地拉起一个后台守护进程（Daemon / Background Task），又能不阻塞当前的 Main Loop，甚至还能在后续的 Turn 中让模型去查看这个后台进程输出的日志状态呢？
+(提示：可以参考操作系统 nohup 的理念，或者在 tools 包中引入一个类似于 TaskManager 的全局变量来管理子进程的 Cmd 和 Buffer)
