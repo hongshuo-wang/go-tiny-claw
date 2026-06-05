@@ -53,7 +53,7 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 	for {
 		turnCount++
 
-		log.Printf("[Engine] 慢思考模式（Thinking Phase）：%s\n", e.EnableThinking)
+		log.Printf("[Engine] 慢思考模式（Thinking Phase）：%t\n", e.EnableThinking)
 		log.Printf("================= [Turn %d] 开始 =================\n", turnCount)
 
 		// 获取当前挂载的所有工具定义
