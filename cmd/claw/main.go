@@ -18,9 +18,19 @@ func main() {
 	if apiKey == "" {
 		log.Fatal("缺少环境变量 OPENAI_API_KEY")
 	}
+	modelName := os.Getenv("OPENAI_MODEL")
+	if modelName == "" {
+		log.Fatal("缺少环境变量 OPENAI_MODEL")
+	}
+	baseUrl := os.Getenv("OPENAI_BASE_URL")
+	if baseUrl == "" {
+		log.Fatal("缺少环境变量 OPENAI_BASE_URL")
+	}
+
+	log.Printf("初始化 LLM Provider... model:[%s]  baseUrl:[%s]\n", modelName, baseUrl)
 
 	// 初始化真实的 Provider 大脑
-	llmProvider := provider.NewOpenAIProvider("gpt-5.5", "https://api.gapi.cc/v1", apiKey)
+	llmProvider := provider.NewOpenAIProvider(modelName, baseUrl, apiKey)
 	// 注入真实的工具注册中心
 	r := tools.NewRegistry()
 	// 注册文件读取工具
@@ -36,10 +46,8 @@ func main() {
 	agentEngine := engine.NewAgentEngine(llmProvider, r, workDir, false)
 
 	// 发起任务指令
-	prompt := `我当前目录下有一个 hello.go 文件。 请帮我把里面 
-				"TODO: 增加鉴权逻辑" 下面的那个 if 语句，整个替换为： 
-				if user == nil { fmt.Println("Forbidden!") return }
-				替换时注意代码格式要正确
+	prompt := `我当前目录下有 a.txt, b.txt, c.txt 三个文件。 
+				为了节省时间，请你同时一次性读取这三个文件，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息
 				`
 	err := agentEngine.Run(context.Background(), prompt)
 	if err != nil {

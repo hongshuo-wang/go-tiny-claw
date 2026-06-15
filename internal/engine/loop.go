@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/hongshuo_wang/go-tiny-claw/internal/provider"
 	"github.com/hongshuo_wang/go-tiny-claw/internal/schema"
@@ -101,25 +102,45 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			break
 		}
 		// 4、 执行行动（Action）与获取观察结果（Observation）
-		log.Printf("[Engine] 模型请求了 %d 个工具调用\n", len(actionResp.ToolCalls))
+		log.Printf("[Engine] 模型并发请求了 %d 个工具调用\n", len(actionResp.ToolCalls))
 
-		for _, toolCall := range actionResp.ToolCalls {
-			log.Printf("[Engine] 正在调用工具 %s, 参数：%s\n", toolCall.Name, string(toolCall.Arguments))
-			// 通过 Registry 路由并执行底层工具
-			toolResult := e.registry.Execute(ctx, toolCall)
-			if toolResult.IsError {
-				log.Printf("[Engine] 工具调用 %s 失败：%s\n", toolCall.Name, toolResult.Output)
-			} else {
-				log.Printf("[Engine] 工具调用 %s 成功：%s\n", toolCall.Name, toolResult.Output)
-			}
+		// 【驾驭工程】并行调用工具
+		// 预分配一个固定长度的切片，用于安全地存放各个并发工具的执行结果
+		// 长度与 tool call 的数量完全一致
+		observationMsgs := make([]schema.Message, len(actionResp.ToolCalls))
 
-			// 将工具执行的观察结果（Observation）封装为 User Message 追加到上下文中
-			observationMessage := schema.Message{
-				Role:       schema.RoleUser,
-				Content:    toolResult.Output,
-				ToolCallID: toolCall.ID, // ToolCallID必须携带！这是维系大模型推理链条的关键
-			}
-			contextHistory = append(contextHistory, observationMessage)
+		// 创建一个 WaitGroup，用于等待所有工具调用完成
+		var wg sync.WaitGroup
+
+		// 遍历模型请求的所有工具，为每一个工具单独 Fork 出一个 Goroutine
+		for i, toolCall := range actionResp.ToolCalls {
+			wg.Add(1) // 增加计数器
+			// 开启协程。注意：一定要将索引 i 和 toolCall 作为参数传入匿名函数，防止闭包问题
+			go func(idx int, call schema.ToolCall) {
+				defer wg.Done() // 协程结束时计数器减 1
+				log.Printf("[Engine Go-%d] 正在并行调用工具 %s, 参数：%s\n", idx, toolCall.Name, string(toolCall.Arguments))
+				// 通过 Registry 路由并执行底层工具
+				toolResult := e.registry.Execute(ctx, toolCall)
+				if toolResult.IsError {
+					log.Printf("[Engine] 工具调用 %s 失败：%s\n", toolCall.Name, toolResult.Output)
+				} else {
+					log.Printf("[Engine] 工具调用 %s 成功：%s\n", toolCall.Name, toolResult.Output)
+				}
+				// 将工具执行的观察结果（Observation）封装为 User Message 追加到上下文中
+				observationMessage := schema.Message{
+					Role:       schema.RoleUser,
+					Content:    toolResult.Output,
+					ToolCallID: toolCall.ID, // ToolCallID必须携带！这是维系大模型推理链条的关键
+				}
+				// 线程安全：追加到切片中
+				observationMsgs[idx] = observationMessage
+			}(i, toolCall)
+		}
+		// Join 阻塞等待：主循环挂起，知道所有的并发协程全部执行完毕
+		wg.Wait()
+		log.Println("[Engine] 所有并发模型工具调用完毕，开始聚合观察结果（Observation）...")
+		for _, obs := range observationMsgs {
+			contextHistory = append(contextHistory, obs)
 		}
 		// 循环回到开头，模型将带着新加入的 Observation 继续它的下一轮思考
 	}
