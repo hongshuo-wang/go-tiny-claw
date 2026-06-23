@@ -1,0 +1,8 @@
+我们目前在 handleAgentRun 方法中，是直接通过 go b.handleAgentRun(...) 启动一个新的 Goroutine 开启一轮完整的 ReAct 循环的。
+如果你在一个几百人的飞书运维群里部署了这个机器人。
+某天发生线上事故，群里大家同时焦急地艾特了机器人发了 10 条指令。
+此时，后台瞬间拉起了 10 个 Main Loop，这意味着它们会并发地在同一个 WorkDir（工作区目录）下执行 bash 命令、
+甚至是执行 write_file 去覆写同一个文件！这无疑会引发灾难性的文件锁冲突和状态混乱（Data Race in Physical World）。
+在不改变大模型本身特性的前提下，如果要为你的 go-tiny-claw 飞书服务端增加一个工作区读写锁（Workspace Mutex/Lock）
+或者任务调度队列（Task Queue），确保同一个目录下同一时刻只有一个 Agent 任务在运行文件修改，
+你会如何在架构上（比如在 Dispatcher 层或 Engine 初始化层）进行设计？

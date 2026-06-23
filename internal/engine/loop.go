@@ -32,7 +32,7 @@ func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, en
 }
 
 // Run 启动 Agent 的生命周期
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
+func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
 	log.Printf("[Engine] 引擎启动，锁定工作区%s\n", e.WorkDir)
 
 	// 1、初始化会话的 Context(上下文内存)
@@ -64,6 +64,10 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// Phase 1：慢思考阶段（Thinking）- 剥夺工具，强制让模型先规划
 		// =======================================================
 		if e.EnableThinking {
+			if reporter != nil {
+				// 广播慢思考状态
+				reporter.OnThinking(ctx)
+			}
 			log.Printf("[Engine][Phase1] 剥夺工具访问权，强制进入慢思考与规划阶段...")
 			thinkResp, err := e.provider.Generate(ctx, contextHistory, nil)
 			if err != nil {
@@ -98,6 +102,9 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// 3、退出条件判断
 		// 如果模型没有请求任何工具调用，说明它认为任务已经完成，跳出循环。
 		if len(actionResp.ToolCalls) == 0 {
+			if actionResp.Content != "" && reporter != nil {
+				reporter.OnMessage(ctx, actionResp.Content)
+			}
 			log.Println("[Engine] 模型没有请求任何工具调用，任务完成。")
 			break
 		}
@@ -118,9 +125,16 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 			// 开启协程。注意：一定要将索引 i 和 toolCall 作为参数传入匿名函数，防止闭包问题
 			go func(idx int, call schema.ToolCall) {
 				defer wg.Done() // 协程结束时计数器减 1
+				if reporter != nil {
+					reporter.OnToolCall(ctx, call.Name, string(call.Arguments))
+				}
 				log.Printf("[Engine Go-%d] 正在并行调用工具 %s, 参数：%s\n", idx, toolCall.Name, string(toolCall.Arguments))
 				// 通过 Registry 路由并执行底层工具
 				toolResult := e.registry.Execute(ctx, toolCall)
+				if reporter != nil {
+					// 为了防止大文件
+					reporter.OnToolResult(ctx, toolCall.Name, toolResult.Output, toolResult.IsError)
+				}
 				if toolResult.IsError {
 					log.Printf("[Engine] 工具调用 %s 失败：%s\n", toolCall.Name, toolResult.Output)
 				} else {

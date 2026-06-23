@@ -2,55 +2,67 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
 
 	"github.com/hongshuo_wang/go-tiny-claw/internal/engine"
+	"github.com/hongshuo_wang/go-tiny-claw/internal/feishu"
 	"github.com/hongshuo_wang/go-tiny-claw/internal/provider"
 	"github.com/hongshuo_wang/go-tiny-claw/internal/tools"
 )
 
 func main() {
 	// 获取当前目录作为 WorkDir的物理边界
-	workDir, _ := os.Getwd()
-
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		log.Fatal("缺少环境变量 OPENAI_API_KEY")
-	}
-	modelName := os.Getenv("OPENAI_MODEL")
-	if modelName == "" {
-		log.Fatal("缺少环境变量 OPENAI_MODEL")
-	}
-	baseUrl := os.Getenv("OPENAI_BASE_URL")
-	if baseUrl == "" {
-		log.Fatal("缺少环境变量 OPENAI_BASE_URL")
-	}
-
-	log.Printf("初始化 LLM Provider... model:[%s]  baseUrl:[%s]\n", modelName, baseUrl)
-
-	// 初始化真实的 Provider 大脑
-	llmProvider := provider.NewOpenAIProvider(modelName, baseUrl, apiKey)
-	// 注入真实的工具注册中心
-	r := tools.NewRegistry()
-	// 注册文件读取工具
-	readFileTool := tools.NewReadFileTool(workDir)
-	writeFileTool := tools.NewWriteFileTool(workDir)
-	bashTool := tools.NewBashTool(workDir)
-	editFileTool := tools.NewEditFileTool(workDir)
-	r.Registry(readFileTool)
-	r.Registry(writeFileTool)
-	r.Registry(bashTool)
-	r.Registry(editFileTool)
-	// 实例化核心引擎
-	agentEngine := engine.NewAgentEngine(llmProvider, r, workDir, false)
-
-	// 发起任务指令
-	prompt := `我当前目录下有 a.txt, b.txt, c.txt 三个文件。 
-				为了节省时间，请你同时一次性读取这三个文件，并将它们的内容综合起来，告诉我它们分别记录了什么领域的信息
-				`
-	err := agentEngine.Run(context.Background(), prompt)
+	workDir, err := os.Getwd()
 	if err != nil {
-		log.Fatalf("引擎崩溃：%v", err)
+		log.Fatalf("获取当前工作目录失败: %v", err)
 	}
+
+	agentEngine := newAgentEngine(workDir)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	bot := feishu.NewFeishuWebsocketBot(agentEngine)
+	log.Println("🚀 飞书 WebSocket 长连接模式启动，按 Ctrl+C 退出...")
+
+	if err := bot.StartWebSocket(ctx); err != nil {
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			log.Println("收到退出信号，飞书机器人已停止")
+			return
+		}
+		log.Fatalf("❌ WebSocket 连接失败: %v", err)
+	}
+
+	log.Println("飞书机器人已停止")
+}
+
+func newAgentEngine(workDir string) *engine.AgentEngine {
+	apiKey := mustGetEnv("OPENAI_API_KEY")
+	modelName := mustGetEnv("OPENAI_MODEL")
+	baseUrl := mustGetEnv("OPENAI_BASE_URL")
+
+	log.Printf("初始化 LLM Provider... model:[%s] baseUrl:[%s]\n", modelName, baseUrl)
+
+	llmProvider := provider.NewOpenAIProvider(modelName, baseUrl, apiKey)
+	registry := tools.NewRegistry()
+
+	registry.Registry(tools.NewReadFileTool(workDir))
+	registry.Registry(tools.NewWriteFileTool(workDir))
+	registry.Registry(tools.NewBashTool(workDir))
+	registry.Registry(tools.NewEditFileTool(workDir))
+
+	return engine.NewAgentEngine(llmProvider, registry, workDir, false)
+}
+
+func mustGetEnv(key string) string {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		log.Fatalf("缺少环境变量 %s", key)
+	}
+	return value
 }
